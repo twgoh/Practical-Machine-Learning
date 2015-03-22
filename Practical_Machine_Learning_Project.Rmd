@@ -1,0 +1,122 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "twgoh"
+date: "Sunday, March 22, 2015"
+output: html_document
+---
+
+### Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Data
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. We load the two datasets:
+
+```{r}
+train <- read.csv("C:/Users/User/Documents/Coursera/08 - Practical Machine Learning/pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+test <- read.csv("C:/Users/User/Documents/Coursera/08 - Practical Machine Learning/pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+```
+
+The training data has 19622 observations and 160 features, and the distribution of the five measured stances A,B,C,D,E is:
+```{r}
+dim(train)
+table(train$classe)
+```
+
+### Preprocessing
+
+##### Cleaning the data
+
+```{r, warning=FALSE}
+library(caret)
+
+#remove columns that are not relevant for classification
+train <- train[,7:ncol(train)]
+
+#remove columns with over a 90% of not a number
+nasPerColumn<- apply(train,2,function(x) {sum(is.na(x))})
+train <- train[,which(nasPerColumn <  nrow(train)*0.9)]
+
+#remove near zero variance predictors
+nearZeroColumns <- nearZeroVar(train, saveMetrics = TRUE)
+train <- train[, nearZeroColumns$nzv==FALSE]
+
+#class into factor
+train$classe <- factor(train$classe)
+```
+
+##### Partitioning the training set
+
+We separate our training data into a training set and a validation set so that we can validate our model.
+
+```{r}
+set.seed(123)
+trainset <- createDataPartition(train$classe, p = 0.8, list = FALSE)
+Training <- train[trainset, ]
+Validation <- train[-trainset, ]
+```
+
+### Create Machine Learning Models
+
+Three models are generated: random forest ("rf"), boosted trees ("gbm") and linear discriminant analysis ("lda") model. We use the random forest model.
+
+```{r}
+library(parallel)
+library(doParallel)
+registerDoParallel(makeCluster(detectCores()))
+
+library(randomForest)
+rfModel <- randomForest(classe ~ ., data = Training, importance = TRUE, ntrees = 10)
+#model_gbm <-train(classe ~ ., method = 'gbm', data = Training)
+#model_lda <-train(classe ~ ., method = 'lda', data = Training) 
+```
+
+### Model Validation
+
+Let us now test our model performance on the training set itself and the cross validation set.
+
+##### Training set accuracy
+```{r}
+ptraining <- predict(rfModel, Training)
+print(confusionMatrix(ptraining, Training$classe))
+```
+
+Obviously our model performs excellent against the training set, but we need to cross validate the performance against the held out set and see if we have avoided overfitting.
+
+
+##### Validation set accuracy (Out-of-Sample)
+
+Let us now see how our model performs on the cross validation set that we held out from training.
+
+```{r, warning=FALSE}
+pvalidation <- predict(rfModel, Validation)
+print(confusionMatrix(pvalidation, Validation$classe))
+```
+
+The cross validation accuracy is 99.85%, so our model performs rather good.
+
+### Test set prediction
+
+The prediction of our algorithm for the test set is:
+
+```{r, warning=FALSE}
+ptest <- predict(rfModel, test)
+ptest
+```
+
+We then save the output to files according to instructions and post it to the submission page.
+
+```{r, warning=FALSE}
+answers <- as.vector(ptest)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}  
+
+pml_write_files(answers)
+```
